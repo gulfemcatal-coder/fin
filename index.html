@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Lesson Planner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        window.firebase = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs, setLogLevel };
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #fdfbf8;
+            color: #4a4a4a;
+        }
+        .nav-button {
+            transition: all 0.3s ease;
+            border-bottom: 2px solid transparent;
+        }
+        .nav-button.active {
+            border-bottom-color: #d5a021;
+            color: #d5a021;
+        }
+        input[type="text"] {
+            transition: all 0.3s ease;
+            background-color: #fff;
+            border: 1px solid #e2e8f0;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #d5a021;
+            box-shadow: 0 0 0 2px rgba(213, 160, 33, 0.2);
+        }
+        .action-button {
+            transition: all 0.3s ease;
+        }
+        .message-box {
+            position: fixed;
+            top: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            font-weight: 500;
+            display: none;
+            text-align: center;
+        }
+        .message-box.show {
+            display: block;
+        }
+        .message-box.error {
+            background-color: #fef2f2;
+            color: #ef4444;
+            border: 1px solid #fecaca;
+        }
+        .message-box.success {
+            background-color: #f0fdf4;
+            color: #22c55e;
+            border: 1px solid #dcfce7;
+        }
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+        }
+        .modal {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            max-width: 90%;
+            width: 400px;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div id="message-box" class="message-box"></div>
+    <div id="modal-container" class="hidden modal-overlay">
+        <div class="modal">
+            <p id="modal-message" class="text-lg font-medium mb-4 text-gray-700"></p>
+            <input id="modal-input" type="text" class="hidden w-full p-2 mb-4 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Enter name">
+            <div class="flex justify-center gap-4">
+                <button id="modal-cancel" class="bg-gray-200 text-gray-700 font-bold py-2 px-6 rounded-lg hover:bg-gray-300">Cancel</button>
+                <button id="modal-confirm" class="bg-amber-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-amber-700">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <main class="max-w-4xl mx-auto p-4 sm:p-6 lg:p-8 my-8 bg-white rounded-2xl shadow-lg border border-gray-100">
+
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-800">Weekly Schedule</h1>
+            <p class="mt-2 text-lg text-gray-600">Plan your lessons with custom links and files for each class.</p>
+            <div id="user-info" class="text-sm text-gray-500 mt-2"></div>
+        </header>
+
+        <nav class="flex flex-wrap justify-center border-b border-gray-200 mb-8">
+            <button data-day="monday" class="nav-button px-4 py-3 font-semibold text-gray-600 hover:text-amber-600 active">Monday</button>
+            <button data-day="tuesday" class="nav-button px-4 py-3 font-semibold text-gray-600 hover:text-amber-600">Tuesday</button>
+            <button data-day="wednesday" class="nav-button px-4 py-3 font-semibold text-gray-600 hover:text-amber-600">Wednesday</button>
+            <button data-day="thursday" class="nav-button px-4 py-3 font-semibold text-gray-600 hover:text-amber-600">Thursday</button>
+            <button data-day="friday" class="nav-button px-4 py-3 font-semibold text-gray-600 hover:text-amber-600">Friday</button>
+        </nav>
+
+        <div id="schedule-content">
+            <!-- Content for the selected day will be dynamically inserted here -->
+        </div>
+
+        <footer class="mt-10 flex flex-col sm:flex-row justify-center gap-4">
+            <button id="save-button" class="action-button bg-amber-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500">Save Plan</button>
+            <button id="new-plan-button" class="action-button bg-gray-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">New Plan</button>
+            <button id="archive-button" class="action-button bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Archive Current Plan</button>
+        </footer>
+
+        <section id="archive-section" class="mt-12 p-6 bg-gray-100 rounded-lg">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">Load from Archive</h2>
+            <div id="archive-list" class="space-y-4">
+                <p class="text-center text-gray-500">Your archived plans will appear here.</p>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        const dailySchedule = {
+            monday: ["ELA", "ELA", "Math", "Social Studies"],
+            tuesday: ["ELA", "ELA", "Math", "Science"],
+            wednesday: ["ELA", "Math", "ELA", "ELA"],
+            thursday: ["ELA", "ELA", "ELA", "Math"],
+            friday: ["ELA", "Social Studies", "ELA", "Math", "Science"]
+        };
+        const defaultPlanData = {};
+        for (const day in dailySchedule) {
+            defaultPlanData[day] = dailySchedule[day].map(() => ({ title: '', link: '' }));
+        }
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : undefined;
+
+        let db, auth, userId;
+        const mainDocPath = 'main-plan';
+        let currentPlanData = { ...defaultPlanData };
+        
+        const scheduleContent = document.getElementById('schedule-content');
+        const navButtons = document.querySelectorAll('.nav-button');
+        const messageBox = document.getElementById('message-box');
+        const archiveList = document.getElementById('archive-list');
+        const saveButton = document.getElementById('save-button');
+        const newPlanButton = document.getElementById('new-plan-button');
+        const archiveButton = document.getElementById('archive-button');
+        let currentDay = 'monday';
+        let isAuthReady = false;
+
+        function showMessage(text, type = 'success') {
+            messageBox.textContent = text;
+            messageBox.className = `message-box show ${type}`;
+            setTimeout(() => {
+                messageBox.classList.remove('show');
+            }, 3000);
+        }
+        
+        function showModal(message, withInput = false) {
+            return new Promise((resolve) => {
+                const modalContainer = document.getElementById('modal-container');
+                const modalMessage = document.getElementById('modal-message');
+                const modalInput = document.getElementById('modal-input');
+                const modalConfirm = document.getElementById('modal-confirm');
+                const modalCancel = document.getElementById('modal-cancel');
+
+                modalMessage.textContent = message;
+                if (withInput) {
+                    modalInput.classList.remove('hidden');
+                    modalInput.value = '';
+                } else {
+                    modalInput.classList.add('hidden');
+                }
+                modalContainer.classList.remove('hidden');
+
+                const handleConfirm = () => {
+                    modalContainer.classList.add('hidden');
+                    const value = withInput ? modalInput.value : true;
+                    resolve(value);
+                    cleanup();
+                };
+
+                const handleCancel = () => {
+                    modalContainer.classList.add('hidden');
+                    resolve(false);
+                    cleanup();
+                };
+
+                const cleanup = () => {
+                    modalConfirm.removeEventListener('click', handleConfirm);
+                    modalCancel.removeEventListener('click', handleCancel);
+                };
+
+                modalConfirm.addEventListener('click', handleConfirm);
+                modalCancel.addEventListener('click', handleCancel);
+            });
+        }
+
+        async function initFirebase() {
+            try {
+                const app = firebase.initializeApp(firebaseConfig);
+                db = firebase.getFirestore(app);
+                auth = firebase.getAuth(app);
+                firebase.setLogLevel('debug');
+
+                const signInPromise = initialAuthToken
+                    ? firebase.signInWithCustomToken(auth, initialAuthToken)
+                    : firebase.signInAnonymously(auth);
+
+                await signInPromise;
+
+                userId = auth.currentUser.uid;
+                const userInfo = document.getElementById('user-info');
+                if (userInfo) userInfo.textContent = `User ID: ${userId}`;
+                isAuthReady = true;
+                console.log("Firebase authentication successful. User ID:", userId);
+                setupRealtimeListener();
+                setupArchiveListener();
+
+            } catch (error) {
+                console.error("Error initializing Firebase or signing in:", error);
+                showMessage("Failed to connect to the database.", "error");
+            }
+        }
+        
+        function renderDay() {
+            const lessons = dailySchedule[currentDay];
+            let html = `<div data-day="${currentDay}" class="space-y-6">`;
+            lessons.forEach((subject, index) => {
+                const lessonId = `${currentDay}-${index}`;
+                html += `
+                    <div class="border rounded-lg p-4 bg-gray-50 shadow-sm">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-2">${subject}</h3>
+                        <div class="space-y-4">
+                            <div>
+                                <label for="lesson-title-${lessonId}" class="block text-sm font-medium text-gray-700 mb-1">Lesson Title</label>
+                                <input type="text" id="lesson-title-${lessonId}" data-type="title" class="w-full p-2 rounded-md" placeholder="e.g., Introduction to a new topic">
+                            </div>
+                            <div>
+                                <label for="lesson-link-${lessonId}" class="block text-sm font-medium text-gray-700 mb-1">File/Link URL</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="text" id="lesson-link-${lessonId}" data-type="link" class="w-full p-2 rounded-md" placeholder="https://example.com/worksheet.pdf or file:///C:/path/to/file.doc">
+                                    <a id="link-preview-${lessonId}" href="#" target="_blank" class="text-blue-500 hover:text-blue-700 font-semibold text-sm hidden">Preview</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += `</div>`;
+            scheduleContent.innerHTML = html;
+
+            navButtons.forEach(button => {
+                button.classList.toggle('active', button.dataset.day === currentDay);
+            });
+
+            document.querySelectorAll(`[data-day="${currentDay}"] input[data-type="link"]`).forEach(input => {
+                input.addEventListener('input', updateLinkPreview);
+            });
+
+            applyDataToUI(currentPlanData);
+        }
+        
+        function updateLinkPreview(event) {
+            const input = event.target;
+            const link = input.value;
+            const id = input.id.replace('lesson-link-', '');
+            const previewLink = document.getElementById(`link-preview-${id}`);
+            if (link) {
+                previewLink.href = link;
+                previewLink.classList.remove('hidden');
+            } else {
+                previewLink.href = '#';
+                previewLink.classList.add('hidden');
+            }
+        }
+
+        function applyDataToUI(data) {
+            for (const day in data) {
+                data[day].forEach((lesson, index) => {
+                    const lessonId = `${day}-${index}`;
+                    const titleInput = document.getElementById(`lesson-title-${lessonId}`);
+                    const linkInput = document.getElementById(`lesson-link-${lessonId}`);
+                    if (titleInput) titleInput.value = lesson.title;
+                    if (linkInput) {
+                        linkInput.value = lesson.link;
+                        updateLinkPreview({ target: linkInput });
+                    }
+                });
+            }
+        }
+
+        function collectDataFromUI() {
+            const data = JSON.parse(JSON.stringify(defaultPlanData));
+            for (const day in dailySchedule) {
+                dailySchedule[day].forEach((subject, index) => {
+                    const lessonId = `${day}-${index}`;
+                    const titleInput = document.getElementById(`lesson-title-${lessonId}`);
+                    const linkInput = document.getElementById(`lesson-link-${lessonId}`);
+                    if (titleInput && linkInput) {
+                        data[day][index] = {
+                            title: titleInput.value,
+                            link: linkInput.value
+                        };
+                    }
+                });
+            }
+            return data;
+        }
+
+        async function saveData() {
+            if (!isAuthReady || !userId) {
+                showMessage("Authentication failed. Please refresh the page.", "error");
+                return;
+            }
+            const planData = collectDataFromUI();
+            try {
+                const docRef = firebase.doc(db, `artifacts/${appId}/users/${userId}/current-plan/${mainDocPath}`);
+                await firebase.setDoc(docRef, { data: JSON.stringify(planData) });
+                showMessage('Plan saved to cloud!');
+            } catch (e) {
+                console.error("Firestore operation failed:", e);
+                showMessage("Failed to save plan.", "error");
+            }
+        }
+
+        async function newPlan() {
+            const result = await showModal('Are you sure you want to create a new plan? This will overwrite your current plan with a blank one.');
+            if (result) {
+                if (!isAuthReady || !userId) {
+                    showMessage("Authentication failed. Please refresh the page.", "error");
+                    return;
+                }
+                try {
+                    const docRef = firebase.doc(db, `artifacts/${appId}/users/${userId}/current-plan/${mainDocPath}`);
+                    await firebase.setDoc(docRef, { data: JSON.stringify(defaultPlanData) });
+                    showMessage('New plan created!');
+                } catch (e) {
+                    console.error("Firestore operation failed:", e);
+                    showMessage("Failed to create new plan.", "error");
+                }
+            }
+        }
+        
+        async function archiveCurrentPlan() {
+            const planName = await showModal("Enter a name for this archived plan:", true);
+            if (!planName) return;
+            const planData = collectDataFromUI();
+            if (!isAuthReady || !userId) {
+                showMessage("Authentication failed. Please refresh the page.", "error");
+                return;
+            }
+            try {
+                const archiveRef = firebase.collection(db, `artifacts/${appId}/users/${userId}/archives`);
+                await firebase.addDoc(archiveRef, {
+                    name: planName,
+                    data: JSON.stringify(planData),
+                    timestamp: new Date().toISOString()
+                });
+                showMessage(`Plan "${planName}" archived successfully!`);
+            } catch (e) {
+                console.error("Firestore operation failed:", e);
+                showMessage("Failed to archive plan.", "error");
+            }
+        }
+        
+        async function deleteArchivePlan(docId) {
+            const result = await showModal('Are you sure you want to delete this archived plan? This cannot be undone.');
+            if (result) {
+                if (!isAuthReady || !userId) return;
+                try {
+                    const docRef = firebase.doc(db, `artifacts/${appId}/users/${userId}/archives/${docId}`);
+                    await firebase.deleteDoc(docRef);
+                    showMessage('Plan deleted successfully!');
+                } catch (e) {
+                    console.error("Firestore operation failed:", e);
+                    showMessage("Failed to delete plan.", "error");
+                }
+            }
+        }
+
+        function setupRealtimeListener() {
+            if (!isAuthReady || !userId) return;
+            const docRef = firebase.doc(db, `artifacts/${appId}/users/${userId}/current-plan/${mainDocPath}`);
+            firebase.onSnapshot(docRef, (doc) => {
+                if (doc.exists()) {
+                    currentPlanData = JSON.parse(doc.data().data);
+                } else {
+                    currentPlanData = { ...defaultPlanData };
+                }
+                applyDataToUI(currentPlanData);
+            }, (error) => {
+                console.error("Error listening to document:", error);
+                showMessage("Failed to sync plan data.", "error");
+            });
+        }
+        
+        function setupArchiveListener() {
+            if (!isAuthReady || !userId) return;
+            const archiveRef = firebase.collection(db, `artifacts/${appId}/users/${userId}/archives`);
+            firebase.onSnapshot(archiveRef, (snapshot) => {
+                archiveList.innerHTML = '';
+                if (snapshot.empty) {
+                    archiveList.innerHTML = `<p class="text-center text-gray-500">No archived plans found.</p>`;
+                    return;
+                }
+                snapshot.forEach(doc => {
+                    const plan = doc.data();
+                    const item = document.createElement('div');
+                    item.className = 'flex justify-between items-center bg-white p-4 rounded-lg shadow-sm';
+                    const date = new Date(plan.timestamp).toLocaleString();
+                    item.innerHTML = `
+                        <div>
+                            <p class="text-gray-700 font-medium">${plan.name}</p>
+                            <span class="text-xs text-gray-400">Archived on: ${date}</span>
+                        </div>
+                        <div class="flex space-x-2 ml-auto">
+                            <button class="load-archive-button bg-green-500 text-white text-xs font-bold py-1 px-3 rounded hover:bg-green-600" data-id="${doc.id}">Load</button>
+                            <button class="delete-archive-button bg-red-500 text-white text-xs font-bold py-1 px-3 rounded hover:bg-red-600" data-id="${doc.id}">Delete</button>
+                        </div>
+                    `;
+                    archiveList.appendChild(item);
+                });
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initFirebase();
+            navButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    currentDay = button.dataset.day;
+                    renderDay();
+                });
+            });
+
+            saveButton.addEventListener('click', saveData);
+            newPlanButton.addEventListener('click', newPlan);
+            archiveButton.addEventListener('click', archiveCurrentPlan);
+            archiveList.addEventListener('click', async (event) => {
+                const button = event.target;
+                if (button.classList.contains('load-archive-button')) {
+                    const docId = button.dataset.id;
+                    const docRef = firebase.doc(db, `artifacts/${appId}/users/${userId}/archives/${docId}`);
+                    try {
+                        const docSnap = await firebase.getDoc(docRef);
+                        if (docSnap.exists()) {
+                            const plan = docSnap.data();
+                            const planData = JSON.parse(plan.data);
+                            const mainDocRef = firebase.doc(db, `artifacts/${appId}/users/${userId}/current-plan/${mainDocPath}`);
+                            await firebase.setDoc(mainDocRef, { data: JSON.stringify(planData) });
+                            showMessage(`Loaded "${plan.name}" successfully!`);
+                            if (currentDay !== 'monday') {
+                                currentDay = 'monday';
+                                renderDay();
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Firestore operation failed:", e);
+                        showMessage("Failed to load archive.", "error");
+                    }
+                } else if (button.classList.contains('delete-archive-button')) {
+                    const docId = button.dataset.id;
+                    await deleteArchivePlan(docId);
+                }
+            });
+            renderDay();
+        });
+    </script>
+
+</body>
+</html>
